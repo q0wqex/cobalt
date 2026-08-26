@@ -4,10 +4,15 @@ ENV PATH="$PNPM_HOME:$PATH"
 
 FROM base AS build
 WORKDIR /app
-COPY . /app
 
 RUN corepack enable
 RUN apk add --no-cache python3 alpine-sdk git
+
+# Cache dependency layer
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY api/package.json ./api/
+COPY web/package.json ./web/
+COPY packages/ ./packages/
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
@@ -17,6 +22,8 @@ ARG WEB_DEFAULT_API=https://api-dl.q0wqex.ru
 ENV WEB_HOST=$WEB_HOST
 ENV WEB_DEFAULT_API=$WEB_DEFAULT_API
 
+# Copy source code after dependencies
+COPY . /app
 RUN pnpm --filter=@imput/cobalt-web build
 
 FROM nginx:alpine AS runtime
