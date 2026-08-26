@@ -5,7 +5,7 @@ import { handleHlsPlaylist, isHlsResponse, probeInternalHLSTunnel } from "./inte
 
 const CHUNK_SIZE = BigInt(8e6); // 8 MB
 
-const serviceNeedsChunks = new Set(["youtube", "vk"]);
+const serviceNeedsChunks = new Set(["vk"]);
 
 async function* readChunks(streamInfo, size) {
     let read = 0n, chunksSinceTransplant = 0;
@@ -137,7 +137,8 @@ async function handleGenericStream(streamInfo, res) {
     try {
         const fileResponse = await request(streamInfo.url, {
             headers: {
-                ...Object.fromEntries(streamInfo.headers),
+                ...getHeaders(streamInfo.service),
+                ...(streamInfo.headers ? Object.fromEntries(streamInfo.headers) : {}),
                 host: undefined
             },
             dispatcher: streamInfo.dispatcher,
