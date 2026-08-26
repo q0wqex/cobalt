@@ -13,7 +13,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
 ARG WEB_HOST=dl.q0wqex.ru
-ARG WEB_DEFAULT_API=https://dl.q0wqex.ru
+ARG WEB_DEFAULT_API=https://api-dl.q0wqex.ru
 ENV WEB_HOST=$WEB_HOST
 ENV WEB_DEFAULT_API=$WEB_DEFAULT_API
 
