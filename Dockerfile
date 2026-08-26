@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
@@ -7,7 +7,7 @@ WORKDIR /app
 COPY . /app
 
 RUN corepack enable
-RUN apk add --no-cache python3 alpine-sdk
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential git && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --prod --frozen-lockfile
