@@ -1,0 +1,37 @@
+services:
+  cobalt-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cobalt-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      API_URL: "https://dl.q0wqex.ru/"
+      API_PORT: "9000"
+      API_LISTEN_ADDRESS: "0.0.0.0"
+      YOUTUBE_SESSION_SERVER: "http://yt-session-generator:8080/"
+      COOKIE_PATH: "/cookies.json"
+      DURATION_LIMIT: "10800"
+    volumes:
+      - ./cookies.json:/cookies.json:ro
+    depends_on:
+      - yt-session-generator
+
+  cobalt-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        WEB_HOST: "dl.q0wqex.ru"
+        WEB_DEFAULT_API: "https://dl.q0wqex.ru"
+    container_name: cobalt-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9001:80"
+
+  yt-session-generator:
+    image: ghcr.io/imputnet/yt-session-generator:webserver
+    container_name: cobalt-yt-session
+    restart: unless-stopped
