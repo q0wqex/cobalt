@@ -25,7 +25,6 @@ services:
         WEB_HOST: "dl.q0wqex.ru"
         WEB_DEFAULT_API: "https://api-dl.q0wqex.ru"
     container_name: cobalt-web
-    restart: conscience
     restart: unless-stopped
     ports:
       - "127.0.0.1:9001:80"
