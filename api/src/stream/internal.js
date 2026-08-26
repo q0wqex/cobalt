@@ -4,7 +4,6 @@ import { closeRequest, getHeaders, pipe } from "./shared.js";
 import { handleHlsPlaylist, isHlsResponse, probeInternalHLSTunnel } from "./internal-hls.js";
 
 const CHUNK_SIZE = BigInt(8e6); // 8 MB
-const min = (a, b) => a < b ? a : b;
 
 const serviceNeedsChunks = new Set(["youtube", "vk"]);
 
@@ -15,10 +14,12 @@ async function* readChunks(streamInfo, size) {
             throw new Error("controller aborted");
         }
 
+        const toByte = (read + CHUNK_SIZE - 1n < size) ? (read + CHUNK_SIZE - 1n) : (size - 1n);
+
         const chunk = await request(streamInfo.url, {
             headers: {
                 ...getHeaders(streamInfo.service),
-                Range: `bytes=${read}-${read + CHUNK_SIZE}`
+                Range: `bytes=${read}-${toByte}`
             },
             dispatcher: streamInfo.dispatcher,
             signal: streamInfo.controller.signal,
@@ -33,20 +34,24 @@ async function* readChunks(streamInfo, size) {
             } catch {}
         }
 
-        chunksSinceTransplant++;
-
-        const expected = min(CHUNK_SIZE, size - read);
-        const received = BigInt(chunk.headers['content-length']);
-
-        if (received < expected / 2n) {
+        if (chunk.statusCode !== 200 && chunk.statusCode !== 206) {
             closeRequest(streamInfo.controller);
+            break;
         }
 
+        chunksSinceTransplant++;
+
+        let chunkBytes = 0n;
         for await (const data of chunk.body) {
+            chunkBytes += BigInt(data.length);
             yield data;
         }
 
-        read += received;
+        if (chunkBytes === 0n) {
+            break;
+        }
+
+        read += chunkBytes;
     }
 }
 
@@ -55,11 +60,23 @@ async function handleChunkedStream(streamInfo, res) {
     const cleanup = () => (res.end(), closeRequest(streamInfo.controller));
 
     try {
-        let req, attempts = 3;
+        let req, attempts = 3, size = 0n;
+
+        try {
+            const parsedUrl = new URL(streamInfo.url);
+            const clen = parsedUrl.searchParams.get('clen');
+            if (clen) {
+                size = BigInt(clen);
+            }
+        } catch {}
+
         while (attempts--) {
             req = await fetch(streamInfo.url, {
-                headers: getHeaders(streamInfo.service),
-                method: 'HEAD',
+                headers: {
+                    ...getHeaders(streamInfo.service),
+                    Range: 'bytes=0-0'
+                },
+                method: 'GET',
                 dispatcher: streamInfo.dispatcher,
                 signal
             });
@@ -74,9 +91,21 @@ async function handleChunkedStream(streamInfo, res) {
             } else break;
         }
 
-        const size = BigInt(req.headers.get('content-length'));
+        if (!size) {
+            const contentRange = req.headers.get('content-range');
+            if (contentRange) {
+                const total = contentRange.split('/')[1];
+                if (total && total !== '*') {
+                    size = BigInt(total);
+                }
+            }
+            if (!size) {
+                const cl = req.headers.get('content-length');
+                if (cl) size = BigInt(cl);
+            }
+        }
 
-        if (req.status !== 200 || !size) {
+        if (!size || (req.status !== 200 && req.status !== 206)) {
             return cleanup();
         }
 
@@ -91,10 +120,9 @@ async function handleChunkedStream(streamInfo, res) {
 
         const stream = Readable.from(generator);
 
-        for (const headerName of ['content-type', 'content-length']) {
-            const headerValue = req.headers.get(headerName);
-            if (headerValue) res.setHeader(headerName, headerValue);
-        }
+        const contentType = req.headers.get('content-type');
+        if (contentType) res.setHeader('content-type', contentType);
+        res.setHeader('content-length', size.toString());
 
         pipe(stream, res, cleanup);
     } catch {
@@ -173,19 +201,42 @@ export async function probeInternalTunnel(streamInfo) {
             });
         }
 
+        let size;
+        try {
+            const parsedUrl = new URL(streamInfo.url);
+            const clen = parsedUrl.searchParams.get('clen');
+            if (clen) size = +clen;
+        } catch {}
+
+        if (size && !isNaN(size) && size > 0) return size;
+
         const response = await request(streamInfo.url, {
-            method: 'HEAD',
-            headers,
+            method: 'GET',
+            headers: {
+                ...headers,
+                Range: 'bytes=0-0'
+            },
             dispatcher: streamInfo.dispatcher,
             signal,
             maxRedirections: 16
         });
 
-        if (response.statusCode !== 200)
-            throw "status is not 200 OK";
+        if (response.statusCode !== 200 && response.statusCode !== 206)
+            throw "status is not 200/206";
 
-        const size = +response.headers['content-length'];
-        if (isNaN(size))
+        const contentRange = response.headers['content-range'];
+        if (contentRange) {
+            const total = String(contentRange).split('/')[1];
+            if (total && total !== '*') {
+                size = +total;
+            }
+        }
+
+        if (!size) {
+            size = +response.headers['content-length'];
+        }
+
+        if (isNaN(size) || size <= 0)
             throw "content-length is not a number";
 
         return size;
